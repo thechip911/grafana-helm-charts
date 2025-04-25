@@ -45,11 +45,103 @@ loki:
 mimir:
   # -- Deploy Mimir if enabled. See [upstream values.yaml](https://github.com/grafana/mimir/blob/main/operations/helm/charts/mimir-distributed/values.yaml) for full values reference.
   enabled: true
+  
+  # Mimir configuration as a string value
+  config: |
+    multitenancy_enabled: true
+
+    blocks_storage:
+      backend: filesystem
+      filesystem:
+        dir: /tmp/blocks
+      tsdb:
+        dir: /tmp/tsdb
+
+    compactor:
+      data_dir: /tmp/compactor
+      sharding_ring:
+        kvstore:
+          store: memberlist
+
+    distributor:
+      ring:
+        instance_addr: ${POD_IP}
+        kvstore:
+          store: memberlist
+
+    ingester:
+      ring:
+        instance_addr: ${POD_IP}
+        kvstore:
+          store: memberlist
+        replication_factor: 1
+      lifecycler:
+        final_sleep: 0s
+        join_after: 0s
+        min_ready_duration: 0s
+        num_tokens: 512
+      max_transfer_retries: 3
+
+    ruler_storage:
+      backend: filesystem
+      filesystem:
+        dir: /tmp/ruler
+
+    alertmanager_storage:
+      backend: filesystem
+      filesystem:
+        dir: /tmp/alertmanager
+
+    memberlist:
+      join_members:
+        - lgtm-distributed-mimir-memberlist
+
+    store_gateway:
+      sharding_ring:
+        replication_factor: 1
+        kvstore:
+          store: memberlist
+
+    # Explicitly disable S3 and Minio
+    common:
+      storage:
+        backend: filesystem
+  
   alertmanager:
+    kind: StatefulSet  # Ensures predictable pod naming (alertmanager-0, alertmanager-1, etc.)
+    persistentVolume:
+      enabled: false   # Disable persistent volume
+    extraVolumes:
+      - name: storage
+        emptyDir: {}   # Use ephemeral storage instead
+    extraVolumeMounts:
+      - name: storage
+        mountPath: /tmp
+    # Keep topology spread constraints for high availability
+    topologySpreadConstraints:
+      enabled: true
+      maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
     resources:
       requests:
         cpu: 20m
   compactor:
+    kind: StatefulSet  # Ensures predictable pod naming (compactor-0, compactor-1, etc.)
+    persistentVolume:
+      enabled: false   # Disable persistent volume
+    extraVolumes:
+      - name: storage
+        emptyDir: {}   # Use ephemeral storage instead
+    extraVolumeMounts:
+      - name: storage
+        mountPath: /tmp
+    # Keep topology spread constraints for high availability
+    topologySpreadConstraints:
+      enabled: true
+      maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
     resources:
       requests:
         cpu: 20m
@@ -58,7 +150,22 @@ mimir:
       requests:
         cpu: 20m
   ingester:
+    kind: StatefulSet  # Ensures predictable pod naming (ingester-0, ingester-1, etc.)
     replicas: 2
+    persistentVolume:
+      enabled: false   # Disable persistent volume
+    extraVolumes:
+      - name: storage
+        emptyDir: {}   # Use ephemeral storage instead
+    extraVolumeMounts:
+      - name: storage
+        mountPath: /tmp
+    # Keep topology spread constraints for high availability
+    topologySpreadConstraints:
+      enabled: true
+      maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
     zoneAwareReplication:
       enabled: false
     resources:
@@ -69,7 +176,22 @@ mimir:
       requests:
         cpu: 20m
   querier:
+    kind: StatefulSet  # Ensures predictable pod naming (querier-0, querier-1, etc.)
     replicas: 1
+    persistentVolume:
+      enabled: false   # Disable persistent volume
+    extraVolumes:
+      - name: storage
+        emptyDir: {}   # Use ephemeral storage instead
+    extraVolumeMounts:
+      - name: storage
+        mountPath: /tmp
+    # Keep topology spread constraints for high availability
+    topologySpreadConstraints:
+      enabled: true
+      maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
     resources:
       requests:
         cpu: 20m
@@ -92,10 +214,30 @@ mimir:
     resources:
       requests:
         cpu: 20m
+  # Disable Minio completely since we're using filesystem storage
   minio:
+    enabled: false  # Disable Minio completely
     resources:
       requests:
         cpu: 20m
+    
+  # Disable all Minio-related jobs and hooks
+  enterprise_logs_post_install_job:
+    enabled: false
+  
+  enterprise_metrics_post_install_job:
+    enabled: false
+  
+  enterprise_traces_post_install_job:
+    enabled: false
+  
+  # Disable all hooks
+  hooks:
+    enabled: false
+  
+  # Disable all post-install jobs
+  post_install_job:
+    enabled: false
   rollout_operator:
     resources:
       requests:
